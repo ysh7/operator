@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -66,8 +68,35 @@ var (
 	defaultKubernetesMajorVersion = flag.Uint64("default.kubernetesVersion.major", 1, "Major version of kubernetes server, if operator cannot parse actual kubernetes response")
 	printDefaults                 = flag.Bool("printDefaults", false, "print all variables with their default values and exit")
 	printFormat                   = flag.String("printFormat", "table", "output format for --printDefaults. Can be table, json, yaml or list")
+	ns                            = flag.String("namespaces", cache.AllNamespaces, "comma-seprated list of namespaces to watch, defaults to all namespaces")
+	workloadNs                    = flag.String("workload-namespaces", "-", "comma-seprated list of namespaces to watch for workload objects (vmsingle, vmcluster, vmagent, etc). defaults to value defined in namepsaces")
+	promConverterNs               = flag.String("prom-converter-namespaces", "-", "comma-seprated list of namespaces to watch for prometheus config objects (servicescrape, probe etc) for convertion, defaults to value defined in namepsaces")
 	wasCacheSynced                = uint32(0)
 )
+
+type namespaces map[string]cache.Config
+
+func ParseNamespaces(value *string) namespaces {
+	n := namespaces{}
+	for _, ns := range strings.Split(*value, ",") {
+		if ns == "-" {
+			continue
+		}
+
+		// TODO: cache.Config supports labelSelector/fieldSelectors,
+		// make provision to ccept it from commandline
+		n[ns] = cache.Config{}
+	}
+	return n
+}
+
+func (n namespaces) toStringList() []string {
+	var ns = make([]string, 0, len(n))
+	for k := range n {
+		ns = append(ns, k)
+	}
+	return ns
+}
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -121,7 +150,7 @@ func RunManager(ctx context.Context) error {
 	r.MustRegister(appVersion, uptime, startedAt)
 	setupLog.Info("Registering Components.")
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	ctrlOps := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: *metricsAddr,
@@ -138,11 +167,47 @@ func RunManager(ctx context.Context) error {
 				},
 			},
 		},
-		// port for webhook
-		//Port:             9443,
 		LeaderElection:   *enableLeaderElection,
 		LeaderElectionID: "57410f0d.victoriametrics.com",
-	})
+	}
+
+	var (
+		namespaceList       = ParseNamespaces(ns)
+		workloadNsList      = ParseNamespaces(workloadNs)
+		promConverterNsList = ParseNamespaces(promConverterNs)
+	)
+	fmt.Printf("namespaceList: %#v, workloadNsList: %#v, promConverterNsList: %#v", namespaceList, workloadNsList, promConverterNsList)
+
+	if len(workloadNsList) == 0 {
+		workloadNsList = namespaceList
+	}
+
+	if len(promConverterNsList) == 0 {
+		promConverterNsList = namespaceList
+	}
+
+	ctrlOps.Cache = cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&victoriametricsv1beta1.VMAgent{}:        {Namespaces: workloadNsList},
+			&victoriametricsv1beta1.VMAlert{}:        {Namespaces: workloadNsList},
+			&victoriametricsv1beta1.VMAlertmanager{}: {Namespaces: workloadNsList},
+			&victoriametricsv1beta1.VMCluster{}:      {Namespaces: workloadNsList},
+			&victoriametricsv1beta1.VMSingle{}:       {Namespaces: workloadNsList},
+
+			// dependenices of vmoperator workloads
+			&v12.Deployment{}:    {Namespaces: workloadNsList},
+			&v12.StatefulSet{}:   {Namespaces: workloadNsList},
+			&v1.Service{}:        {Namespaces: workloadNsList},
+			&v1.ConfigMap{}:      {Namespaces: workloadNsList},
+			&v1.Secret{}:         {Namespaces: workloadNsList},
+			&v1.ServiceAccount{}: {Namespaces: workloadNsList},
+		},
+
+		DefaultNamespaces: namespaceList,
+	}
+
+	fmt.Printf("cache.Options: %#v", ctrlOps.Cache)
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrlOps)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		return err

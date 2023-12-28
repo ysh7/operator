@@ -144,7 +144,7 @@ func finalizePBD(ctx context.Context, rclient client.Client, crd CRDObject) erro
 	return removeFinalizeObjByName(ctx, rclient, &policyv1beta1.PodDisruptionBudget{}, crd.PrefixedName(), crd.GetNSName())
 }
 
-func finalizePBDWithName(ctx context.Context, rclient client.Client, ns, name string) error {
+func finalizePBDWithName(ctx context.Context, rclient client.Client, name, ns string) error {
 	if k8stools.IsPDBV1APISupported() {
 		return removeFinalizeObjByName(ctx, rclient, &policyv1.PodDisruptionBudget{}, name, ns)
 	}
