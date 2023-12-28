@@ -30,9 +30,12 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -119,19 +122,26 @@ func RunManager(ctx context.Context) error {
 	setupLog.Info("Registering Components.")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		MetricsBindAddress:     *metricsAddr,
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: *metricsAddr,
+		},
 		HealthProbeBindAddress: *probeAddr,
 		ReadinessEndpointName:  "/ready",
 		LivenessEndpointName:   "/health",
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{
+					&v1.Secret{}, &v1.ConfigMap{}, &v1.Pod{}, &v12.Deployment{},
+					&v12.StatefulSet{}, &v1beta1.PodSecurityPolicy{},
+					&v1beta1.PodDisruptionBudget{}, &v1.Namespace{},
+				},
+			},
+		},
 		// port for webhook
-		Port:             9443,
+		//Port:             9443,
 		LeaderElection:   *enableLeaderElection,
 		LeaderElectionID: "57410f0d.victoriametrics.com",
-		ClientDisableCacheFor: []client.Object{&v1.Secret{}, &v1.ConfigMap{}, &v1.Pod{}, &v12.Deployment{},
-			&v12.StatefulSet{},
-			&v1beta1.PodSecurityPolicy{}, &v1beta1.PodDisruptionBudget{}, &v1.Namespace{}},
-		Namespace: config.MustGetWatchNamespace(),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -155,9 +165,7 @@ func RunManager(ctx context.Context) error {
 		return fmt.Errorf("cannot register ready endpoint: %w", err)
 	}
 	// no-op
-	if err := mgr.AddHealthzCheck("health", func(req *http.Request) error {
-		return nil
-	}); err != nil {
+	if err := mgr.AddHealthzCheck("health", healthz.Ping); err != nil {
 		return fmt.Errorf("cannot register health endpoint: %w", err)
 	}
 
@@ -361,10 +369,16 @@ func RunManager(ctx context.Context) error {
 }
 
 func addWebhooks(mgr ctrl.Manager) error {
-	srv := mgr.GetWebhookServer()
-	srv.CertDir = *webhooksDir
-	srv.CertName = *webhookCertName
-	srv.KeyName = *webhookKeyName
+	webhookSrv := webhook.NewServer(webhook.Options{
+		Port:     9443,
+		CertDir:  *webhooksDir,
+		CertName: *webhookCertName,
+		KeyName:  *webhookKeyName,
+	})
+
+	if err := mgr.Add(webhookSrv); err != nil {
+		return err
+	}
 
 	f := func(objs []client.Object) error {
 		var err error

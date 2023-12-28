@@ -51,7 +51,7 @@ func testGetScheme() *runtime.Scheme {
 func GetTestClientWithObjects(predefinedObjects []runtime.Object) client.Client {
 	obj := []runtime.Object{}
 	obj = append(obj, predefinedObjects...)
-	fclient := fake.NewFakeClientWithScheme(testGetScheme(), obj...)
+	fclient := fake.NewClientBuilder().WithScheme(testGetScheme()).WithRuntimeObjects(obj...).Build()
 	return fclient
 }
 

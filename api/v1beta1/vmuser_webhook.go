@@ -24,6 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 var supportedCRDKinds = []string{
@@ -99,28 +100,28 @@ func parseHeaders(src []string) error {
 }
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (cr *VMUser) ValidateCreate() error {
+func (cr *VMUser) ValidateCreate() (admission.Warnings, error) {
 	if mustSkipValidation(cr) {
-		return nil
+		return nil, nil
 	}
 	if err := cr.sanityCheck(); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return nil, nil
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (cr *VMUser) ValidateUpdate(old runtime.Object) error {
+func (cr *VMUser) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	if mustSkipValidation(cr) {
-		return nil
+		return nil, nil
 	}
 	if err := cr.sanityCheck(); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return nil, nil
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *VMUser) ValidateDelete() error {
-	return nil
+func (r *VMUser) ValidateDelete() (admission.Warnings, error) {
+	return nil, nil
 }

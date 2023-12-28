@@ -23,6 +23,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // log is for logging in this package.
@@ -47,34 +48,34 @@ func (amc *VMAlertmanagerConfig) Validate() error {
 var _ webhook.Validator = &VMAlertmanagerConfig{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *VMAlertmanagerConfig) ValidateCreate() error {
+func (r *VMAlertmanagerConfig) ValidateCreate() (admission.Warnings, error) {
 	if r.Spec.ParsingError != "" {
-		return fmt.Errorf(r.Spec.ParsingError)
+		return nil, fmt.Errorf(r.Spec.ParsingError)
 	}
 	if mustSkipValidation(r) {
-		return nil
+		return nil, nil
 	}
 	if err := r.Validate(); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return nil, nil
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *VMAlertmanagerConfig) ValidateUpdate(old runtime.Object) error {
+func (r *VMAlertmanagerConfig) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	if r.Spec.ParsingError != "" {
-		return fmt.Errorf(r.Spec.ParsingError)
+		return nil, fmt.Errorf(r.Spec.ParsingError)
 	}
 	if mustSkipValidation(r) {
-		return nil
+		return nil, nil
 	}
 	if err := r.Validate(); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return nil, nil
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *VMAlertmanagerConfig) ValidateDelete() error {
-	return nil
+func (r *VMAlertmanagerConfig) ValidateDelete() (admission.Warnings, error) {
+	return nil, nil
 }
